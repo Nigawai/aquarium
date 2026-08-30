@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Аквариум</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #1e90ff, #00bfff);
+            box-shadow: 0 0 30px rgba(0, 100, 200, 0.7);
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="aquarium"></canvas>
+
+    <script>
+        // ===== НАСТРОЙКИ SUPABASE =====
+        const SUPABASE_URL = 'https://yhjhkyxnyvvqnqeitwbb.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_psu4aYJtkqdDHh545USR4g_ehhLnb1D';
+        // ==============================
+
+        const canvas = document.getElementById('aquarium');
+        const ctx = canvas.getContext('2d');
+        // Фоновое изображение
+        const backgroundImage = new Image();
+        backgroundImage.src = 'background.png'; 
+        let fishes = [];
+        let fishImages = {};
+        // === Пузырьки ===
+        let bubbleColumns = []; // массив колонн с пузырьками
+        function resizeCanvas() {
+            canvas.width = window.innerWidth - 40;
+            canvas.height = window.innerHeight - 40;
+        }
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            updateBubblePositions();
+        });
+
+        class Fish {
+            constructor(image = null) {
+                this.x = Math.random() * (canvas.width - 100) + 50;
+                this.y = Math.random() * (canvas.height - 80) + 40;
+                this.speed = Math.random() * 80 + 40;
+                this.direction = Math.random() > 0.5 ? 1 : -1;
+                this.currentDirection = this.direction;
+                this.targetDirection = this.direction;
+                this.turnSpeed = 2.5;
+                this.wobbleAmplitude = Math.random() * 15 + 5;
+                this.wobbleSpeed = Math.random() * 2 + 1;
+                this.wobblePhase = Math.random() * Math.PI * 2;
+                this.bodyLength = Math.random() * 30 + 20;
+                this.bodyHeight = this.bodyLength * 0.4;
+                this.tailLength = this.bodyLength * 0.5;
+                this.hue = Math.random() * 60 + 10;
+                this.saturation = 80 + Math.random() * 20;
+                this.lightness = 50 + Math.random() * 20;
+                this.image = image;
+                if (image) {
+                    this.bodyLength = Math.max(40, Math.min(120, Math.random() * 60 + 40));
+                    this.bodyHeight = this.bodyLength * 0.6;
+                }
+            }
+
+            update(dt, canvasWidth, canvasHeight) {
+                if (this.currentDirection !== this.targetDirection) {
+                    const diff = this.targetDirection - this.currentDirection;
+                    const step = this.turnSpeed * dt;
+                    if (Math.abs(diff) <= step) this.currentDirection = this.targetDirection;
+                    else this.currentDirection += Math.sign(diff) * step;
+                }
+                this.x += this.currentDirection * this.speed * dt;
+                this.y += Math.sin(Date.now() * 0.001 * this.wobbleSpeed + this.wobblePhase)
+                    * this.wobbleAmplitude * dt * 5;
+
+                const margin = this.bodyLength * 0.8;
+                if (this.x > canvasWidth - margin) this.targetDirection = -1;
+                else if (this.x < margin) this.targetDirection = 1;
+                if (this.y < margin) this.y = margin;
+                if (this.y > canvasHeight - margin) this.y = canvasHeight - margin;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                const angle = this.currentDirection === 1 ? 0 : Math.PI;
+                ctx.rotate(angle);
+                const wobbleAngle = Math.sin(Date.now() * 0.001 * this.wobbleSpeed + this.wobblePhase) * 0.1;
+                ctx.rotate(wobbleAngle);
+
+                if (this.image) {
+                    const w = this.bodyLength;
+                    const h = this.bodyHeight;
+                    ctx.drawImage(this.image, -w / 2, -h / 2, w, h);
+                } else {
+                    ctx.fillStyle = `hsl(${this.hue}, ${this.saturation}%, ${this.lightness}%)`;
+                    ctx.strokeStyle = `hsl(${this.hue}, ${this.saturation}%, ${this.lightness - 20}%)`;
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, this.bodyLength / 2, this.bodyHeight / 2, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(-this.bodyLength / 2, 0);
+                    ctx.lineTo(-this.bodyLength / 2 - this.tailLength, -this.bodyHeight * 0.7);
+                    ctx.lineTo(-this.bodyLength / 2 - this.tailLength, this.bodyHeight * 0.7);
+                    ctx.closePath();
+                    ctx.fillStyle = `hsl(${this.hue}, ${this.saturation}%, ${this.lightness - 10}%)`;
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.beginPath();
+                    const eyeX = this.bodyLength * 0.15;
+                    const eyeY = -this.bodyHeight * 0.1;
+                    const eyeRadius = this.bodyHeight * 0.12;
+                    ctx.arc(eyeX, eyeY, eyeRadius, 0, Math.PI * 2);
+                    ctx.fillStyle = '#fff';
+                    ctx.fill();
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 0.5;
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(eyeX + eyeRadius * 0.3, eyeY, eyeRadius * 0.5, 0, Math.PI * 2);
+                    ctx.fillStyle = '#000';
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        async function addFishFromUrl(imageUrl) {
+            if (!fishImages[imageUrl]) {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.src = imageUrl;
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                });
+                fishImages[imageUrl] = img;
+            }
+            const fish = new Fish(fishImages[imageUrl]);
+            fishes.push(fish);
+        }
+
+        function initDefaultFish() {
+            // Декоративные рыбки (5 штук), если база пуста
+            for (let i = 0; i < 5; i++) {
+                fishes.push(new Fish());
+            }
+        }
+        function initBubbles() {
+            const columnsConfig = [
+                { relX: 0.12, maxBubbles: 8, spawnInterval: 0.8, speedRange: [30, 60], radiusRange: [3, 8], wobbleAmplitude: 15, wobbleSpeed: 1.5 },
+                { relX: 0.25, maxBubbles: 10, spawnInterval: 0.6, speedRange: [40, 70], radiusRange: [4, 10], wobbleAmplitude: 20, wobbleSpeed: 2.0 },
+                { relX: 0.35, maxBubbles: 7, spawnInterval: 1.0, speedRange: [35, 65], radiusRange: [3, 7], wobbleAmplitude: 10, wobbleSpeed: 1.8 },
+                { relX: 0.50, maxBubbles: 12, spawnInterval: 0.5, speedRange: [50, 80], radiusRange: [5, 12], wobbleAmplitude: 25, wobbleSpeed: 2.5 },
+                { relX: 0.65, maxBubbles: 9, spawnInterval: 0.7, speedRange: [35, 60], radiusRange: [3, 8], wobbleAmplitude: 18, wobbleSpeed: 1.7 },
+                { relX: 0.80, maxBubbles: 11, spawnInterval: 0.55, speedRange: [45, 75], radiusRange: [4, 9], wobbleAmplitude: 22, wobbleSpeed: 2.2 },
+                // Если нужно вторую колонку справа, раскомментируйте следующую строку и уменьшите maxBubbles у 0.80
+                // { relX: 0.90, maxBubbles: 8, spawnInterval: 0.7, speedRange: [40, 70], radiusRange: [4, 9], wobbleAmplitude: 20, wobbleSpeed: 2.0 },
+            ];
+
+            bubbleColumns = columnsConfig.map(cfg => ({
+                ...cfg,
+                absX: 0,
+                timer: Math.random() * cfg.spawnInterval, // случайный сдвиг, чтобы колонны стартовали не одновременно
+                bubbles: []
+            }));
+
+            updateBubblePositions();
+        }
+
+        // Обновляет абсолютные X колонн при изменении размера canvas
+        function updateBubblePositions() {
+            bubbleColumns.forEach(col => {
+                col.absX = col.relX * canvas.width;
+            });
+        }
+        function updateBubbles(dt, now) {
+            for (const col of bubbleColumns) {
+                // Таймер появления нового пузырька
+                col.timer -= dt;
+                if (col.timer <= 0) {
+                    col.timer = col.spawnInterval * (0.7 + Math.random() * 0.6); // случайный интервал
+                    if (col.bubbles.length < col.maxBubbles) {
+                        const radius = col.radiusRange[0] + Math.random() * (col.radiusRange[1] - col.radiusRange[0]);
+                        const speedY = -(col.speedRange[0] + Math.random() * (col.speedRange[1] - col.speedRange[0]));
+                        const offsetX = (Math.random() - 0.5) * 40; // случайное смещение по горизонтали
+                        col.bubbles.push({
+                            baseX: col.absX + offsetX,
+                            baseY: canvas.height + radius + Math.random() * 30, // старт чуть ниже экрана
+                            radius: radius,
+                            speedY: speedY,
+                            wobbleAmplitude: col.wobbleAmplitude * (0.7 + Math.random() * 0.6),
+                            wobbleSpeed: col.wobbleSpeed * (0.8 + Math.random() * 0.4),
+                            wobblePhase: Math.random() * Math.PI * 2,
+                            opacity: 0.4 + Math.random() * 0.5, // прозрачность
+                        });
+                    }
+                }
+
+                // Движение пузырьков
+                for (let i = col.bubbles.length - 1; i >= 0; i--) {
+                    const b = col.bubbles[i];
+                    b.baseY += b.speedY * dt; // подъём вверх (speedY отрицательный)
+                    // Удаляем, если пузырёк полностью вышел за верх
+                    if (b.baseY + b.radius < 0) {
+                        col.bubbles.splice(i, 1);
+                    }
+                }
+            }
+        }
+        function drawBubbles(ctx, now) {
+            for (const col of bubbleColumns) {
+                for (const b of col.bubbles) {
+                    // Горизонтальное покачивание
+                    const x = b.baseX + Math.sin(now * 0.001 * b.wobbleSpeed + b.wobblePhase) * b.wobbleAmplitude;
+                    const y = b.baseY;
+
+                    // Основной круг пузырька
+                    ctx.beginPath();
+                    ctx.arc(x, y, b.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${b.opacity})`;
+                    ctx.fill();
+
+                    // Блик (маленький белый кружок в верхней части)
+                    ctx.beginPath();
+                    ctx.arc(x - b.radius * 0.3, y - b.radius * 0.3, b.radius * 0.2, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(1, b.opacity + 0.2)})`;
+                    ctx.fill();
+                }
+            }
+        }
+        async function initSupabase() {
+            // Проверяем, что библиотека Supabase загрузилась
+            if (typeof window.supabase === 'undefined') {
+                console.warn('Supabase не загружен, работаем без базы данных.');
+                return;
+            }
+
+            const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+            try {
+                // Получаем все существующие записи
+                const { data: existingFishes, error } = await supabase
+                    .from('fishes')
+                    .select('*')
+                    .order('id', { ascending: false });
+
+                if (error) throw error;
+
+                // Добавляем их (последние сверху)
+                for (const record of existingFishes) {
+                    await addFishFromUrl(record.image_url);
+                }
+
+                // Подписка на новые записи (Realtime)
+                supabase
+                    .channel('fishes-changes')
+                    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'fishes' }, payload => {
+                        console.log('Новая рыбка!', payload.new);
+                        addFishFromUrl(payload.new.image_url);
+                    })
+                    .subscribe();
+
+            } catch (err) {
+                console.error('Ошибка загрузки из базы:', err);
+            }
+        }
+
+        function animate(now) {
+            let dt = (now - lastTime) / 1000;
+            if (dt > 0.1) dt = 0.1;
+            lastTime = now;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Рисуем фоновое изображение, растягивая на весь canvas (cover)
+            if (backgroundImage.complete && backgroundImage.naturalWidth > 0) {
+                const scale = Math.max(
+                    canvas.width / backgroundImage.naturalWidth,
+                    canvas.height / backgroundImage.naturalHeight
+                );
+                const w = backgroundImage.naturalWidth * scale;
+                const h = backgroundImage.naturalHeight * scale;
+                const x = (canvas.width - w) / 2;
+                const y = (canvas.height - h) / 2;
+                ctx.drawImage(backgroundImage, x, y, w, h);
+            } else {
+                // Если изображение ещё не загрузилось — заливаем синим градиентом
+                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                gradient.addColorStop(0, '#1e90ff');
+                gradient.addColorStop(1, '#00bfff');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            drawWaterBackground(ctx, canvas.width, canvas.height, now);
+            // Обновляем и рисуем пузырьки (перед рыбками, чтобы они были позади)
+            updateBubbles(dt, now);
+            drawBubbles(ctx, now);
+            for (const fish of fishes) {
+                fish.update(dt, canvas.width, canvas.height);
+                fish.draw(ctx);
+            }
+            requestAnimationFrame(animate);
+        }
+
+        function drawWaterBackground(ctx, w, h, time) {
+            ctx.save();
+
+            // Лёгкое размытие для скрытия резких краёв
+            ctx.filter = 'blur(1px)';
+
+            const layers = [
+                { baseY: h * 0.10, amplitude: 10, frequency: 0.005, speed: 0.003, alpha: 0.10, thickness: 400, subLayers: 4 },
+                { baseY: h * 0.25, amplitude: 12, frequency: 0.007, speed: 0.0025, alpha: 0.08, thickness: 450, subLayers: 5 },
+                { baseY: h * 0.40, amplitude: 15, frequency: 0.006, speed: 0.002, alpha: 0.07, thickness: 500, subLayers: 4 },
+                { baseY: h * 0.55, amplitude: 14, frequency: 0.008, speed: 0.0022, alpha: 0.09, thickness: 550, subLayers: 5 },
+                { baseY: h * 0.70, amplitude: 18, frequency: 0.007, speed: 0.0018, alpha: 0.08, thickness: 600, subLayers: 4 },
+                { baseY: h * 0.85, amplitude: 10, frequency: 0.009, speed: 0.0028, alpha: 0.06, thickness: 450, subLayers: 3 },
+                { baseY: h * 0.95, amplitude: 8, frequency: 0.006, speed: 0.002, alpha: 0.05, thickness: 300, subLayers: 3 },
+            ];
+
+            const margin = 20; // запас за границами canvas
+
+            for (const layer of layers) {
+                for (let sub = 0; sub < layer.subLayers; sub++) {
+                    const offsetY = (sub - (layer.subLayers - 1) / 2) * 2;
+                    const alpha = layer.alpha * (1 - Math.abs(sub - (layer.subLayers - 1) / 2) / (layer.subLayers / 2) * 0.7);
+                    ctx.globalAlpha = alpha;
+                    ctx.lineWidth = Math.max(1, layer.thickness - Math.abs(offsetY));
+                    ctx.strokeStyle = '#ffffff';
+
+                    ctx.beginPath();
+                    for (let x = -margin; x <= w + margin; x += 3) {
+                        const y1 = Math.sin(x * layer.frequency + time * layer.speed) * layer.amplitude;
+                        const y2 = Math.sin(x * layer.frequency * 1.7 + time * layer.speed * 0.8) * layer.amplitude * 0.5;
+                        const y3 = Math.cos(x * layer.frequency * 0.5 + time * layer.speed * 1.2) * layer.amplitude * 0.3;
+                        const y = layer.baseY + y1 + y2 + y3 + offsetY;
+                        if (x === -margin) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.stroke();
+                }
+            }
+
+            // Сбрасываем фильтр, чтобы не влиять на рыбок
+            ctx.filter = 'none';
+            ctx.restore();
+        }
+
+        // === Инициализация ===
+        resizeCanvas();
+        initDefaultFish();          // сначала обычные рыбки
+        initBubbles();              // инициализируем пузырьки
+        initSupabase();             // затем подключаемся к Supabase (не блокирует анимацию)
+        let lastTime = performance.now();
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>

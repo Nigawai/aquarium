@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Сканер рисунков</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #222;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            overflow: hidden;
+        }
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        #frame {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 75vw;
+            aspect-ratio: 3 / 4;
+            border: 4px solid #000;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+            background: transparent;
+        }
+        .controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            z-index: 10;
+        }
+        button {
+            padding: 15px 30px;
+            font-size: 18px;
+            border: none;
+            border-radius: 50px;
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            transition: background 0.2s;
+        }
+        button:disabled { background: #999; cursor: not-allowed; }
+        button#captureBtn:not(:disabled) { background: #2196F3; }
+        #outputCanvas { display: none; }
+        #status { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: white; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <video id="video" autoplay playsinline></video>
+        <div id="frame"></div>
+        <div class="controls">
+            <button id="startBtn">Включить камеру</button>
+            <button id="captureBtn" disabled>Сделать фото</button>
+        </div>
+        <div id="status"></div>
+    </div>
+    <canvas id="outputCanvas"></canvas>
+
+    <script>
+        // ===== НАСТРОЙКИ SUPABASE =====
+        const SUPABASE_URL = 'https://yhjhkyxnyvvqnqeitwbb.supabase.co';      // например 'https://xxxx.supabase.co'
+        const SUPABASE_ANON_KEY = 'sb_publishable_psu4aYJtkqdDHh545USR4g_ehhLnb1D';   // длинная строка
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // ==============================
+
+        const video = document.getElementById('video');
+        const startBtn = document.getElementById('startBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const frameElement = document.getElementById('frame');
+        const outputCanvas = document.getElementById('outputCanvas');
+        const ctx = outputCanvas.getContext('2d', { willReadFrequently: true });
+        const status = document.getElementById('status');
+
+        let stream = null;
+
+        function setStatus(msg) {
+            status.textContent = msg;
+            setTimeout(() => status.textContent = '', 3000);
+        }
+
+        startBtn.addEventListener('click', async () => {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' },
+                    audio: false
+                });
+                video.srcObject = stream;
+                captureBtn.disabled = false;
+                startBtn.disabled = true;
+                setStatus('Камера включена');
+            } catch (err) {
+                alert('Не удалось получить доступ к камере: ' + err.message);
+            }
+        });
+
+        captureBtn.addEventListener('click', async () => {
+            if (!stream) return;
+
+            // Получаем координаты рамки относительно контейнера
+            const containerRect = document.getElementById('container').getBoundingClientRect();
+            const frameRect = frameElement.getBoundingClientRect();
+
+            // Параметры object-fit: cover
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            const scale = Math.max(
+                containerRect.width / videoWidth,
+                containerRect.height / videoHeight
+            );
+            const displayWidth = videoWidth * scale;
+            const displayHeight = videoHeight * scale;
+            const offsetX = (containerRect.width - displayWidth) / 2;
+            const offsetY = (containerRect.height - displayHeight) / 2;
+
+            // Область исходного видео, соответствующая рамке
+            const srcX = (frameRect.left - containerRect.left - offsetX) / scale;
+            const srcY = (frameRect.top - containerRect.top - offsetY) / scale;
+            const srcW = frameRect.width / scale;
+            const srcH = frameRect.height / scale;
+
+            // Устанавливаем размер canvas равным рамке
+            const outputWidth = Math.round(frameRect.width);
+            const outputHeight = Math.round(frameRect.height);
+            outputCanvas.width = outputWidth;
+            outputCanvas.height = outputHeight;
+
+            // Рисуем вырезанную область
+            ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, outputWidth, outputHeight);
+
+            // Замена белого фона на прозрачный
+            const imageData = ctx.getImageData(0, 0, outputWidth, outputHeight);
+            const data = imageData.data;
+            const threshold = 220; // порог белого
+
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i];
+                const g = data[i + 1];
+                const b = data[i + 2];
+                if (r > threshold && g > threshold && b > threshold) {
+                    data[i + 3] = 0; // делаем прозрачным
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+
+            // Конвертируем canvas в Blob (PNG)
+            const blob = await new Promise(resolve => {
+                outputCanvas.toBlob(resolve, 'image/png');
+            });
+
+            // ===== Загрузка в Supabase Storage =====
+            const fileName = `fish_${Date.now()}.png`;
+            setStatus('Загрузка...');
+
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('fish-images')
+                .upload(fileName, blob, {
+                    contentType: 'image/png',
+                    cacheControl: '3600',
+                    upsert: false
+                });
+
+            if (uploadError) {
+                console.error('Ошибка загрузки:', uploadError);
+                setStatus('Ошибка загрузки!');
+                return;
+            }
+
+            // Получаем публичный URL
+            const { data: urlData } = supabase.storage
+                .from('fish-images')
+                .getPublicUrl(fileName);
+            const imageUrl = urlData.publicUrl;
+
+            // ===== Добавление записи в таблицу fishes =====
+            const { error: insertError } = await supabase
+                .from('fishes')
+                .insert([{ image_url: imageUrl }]);
+
+            if (insertError) {
+                console.error('Ошибка вставки:', insertError);
+                setStatus('Ошибка сохранения!');
+            } else {
+                setStatus('Рыбка отправлена в аквариум!');
+            }
+        });
+    </script>
+</body>
+</html>
