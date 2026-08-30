@@ -91,10 +91,13 @@
             left: 50%;
             transform: translateX(-50%);
             color: white;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.7);
             padding: 8px 16px;
             border-radius: 20px;
             font-size: 14px;
+            white-space: pre-wrap;
+            max-width: 90%;
+            text-align: center;
         }
     </style>
 </head>
@@ -116,12 +119,16 @@
         const SUPABASE_ANON_KEY = 'sb_publishable_psu4aYJtkqdDHh545USR4g_ehhLnb1D';
         // ==============================
 
-        // Безопасное создание клиента Supabase (не блокирует работу, если библиотека не загрузилась)
+        // Безопасное создание клиента Supabase
         let supabase = null;
-        if (typeof window.supabase !== 'undefined') {
-            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        } else {
-            console.warn('Supabase не загружен, загрузка изображений будет недоступна');
+        try {
+            if (typeof window.supabase !== 'undefined') {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            } else {
+                console.warn('Supabase не загружен');
+            }
+        } catch (e) {
+            console.error('Ошибка инициализации Supabase:', e);
         }
 
         const video = document.getElementById('video');
@@ -130,121 +137,128 @@
         const frameElement = document.getElementById('frame');
         const outputCanvas = document.getElementById('outputCanvas');
         const ctx = outputCanvas.getContext('2d', { willReadFrequently: true });
-        const status = document.getElementById('status');
+        const statusDiv = document.getElementById('status');
 
         let stream = null;
 
         function setStatus(msg) {
-            status.textContent = msg;
-            setTimeout(() => status.textContent = '', 3000);
+            statusDiv.textContent = msg;
+            clearTimeout(setStatus.timeout);
+            setStatus.timeout = setTimeout(() => statusDiv.textContent = '', 4000);
+        }
+
+        // Проверка поддержки getUserMedia
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setStatus('Ваш браузер не поддерживает getUserMedia');
         }
 
         startBtn.addEventListener('click', async () => {
             try {
-                // Упрощённый запрос: просто включить камеру (без указания facingMode)
+                setStatus('Запрашиваю доступ к камере...');
                 stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 video.srcObject = stream;
                 captureBtn.disabled = false;
                 startBtn.disabled = true;
                 setStatus('Камера включена');
             } catch (err) {
+                console.error('Ошибка доступа к камере:', err);
+                setStatus('Ошибка: ' + err.name + ' - ' + err.message);
                 alert('Не удалось получить доступ к камере: ' + err.message);
             }
         });
 
         captureBtn.addEventListener('click', async () => {
             if (!stream) return;
+            setStatus('Обработка фото...');
 
-            // Получаем координаты рамки относительно контейнера
-            const containerRect = document.getElementById('container').getBoundingClientRect();
-            const frameRect = frameElement.getBoundingClientRect();
+            try {
+                // Получаем координаты рамки относительно контейнера
+                const containerRect = document.getElementById('container').getBoundingClientRect();
+                const frameRect = frameElement.getBoundingClientRect();
 
-            // Параметры object-fit: cover
-            const videoWidth = video.videoWidth;
-            const videoHeight = video.videoHeight;
-            const scale = Math.max(
-                containerRect.width / videoWidth,
-                containerRect.height / videoHeight
-            );
-            const displayWidth = videoWidth * scale;
-            const displayHeight = videoHeight * scale;
-            const offsetX = (containerRect.width - displayWidth) / 2;
-            const offsetY = (containerRect.height - displayHeight) / 2;
+                // Параметры object-fit: cover
+                const videoWidth = video.videoWidth;
+                const videoHeight = video.videoHeight;
+                const scale = Math.max(
+                    containerRect.width / videoWidth,
+                    containerRect.height / videoHeight
+                );
+                const displayWidth = videoWidth * scale;
+                const displayHeight = videoHeight * scale;
+                const offsetX = (containerRect.width - displayWidth) / 2;
+                const offsetY = (containerRect.height - displayHeight) / 2;
 
-            // Область исходного видео, соответствующая рамке
-            const srcX = (frameRect.left - containerRect.left - offsetX) / scale;
-            const srcY = (frameRect.top - containerRect.top - offsetY) / scale;
-            const srcW = frameRect.width / scale;
-            const srcH = frameRect.height / scale;
+                const srcX = (frameRect.left - containerRect.left - offsetX) / scale;
+                const srcY = (frameRect.top - containerRect.top - offsetY) / scale;
+                const srcW = frameRect.width / scale;
+                const srcH = frameRect.height / scale;
 
-            // Устанавливаем размер canvas равным рамке
-            const outputWidth = Math.round(frameRect.width);
-            const outputHeight = Math.round(frameRect.height);
-            outputCanvas.width = outputWidth;
-            outputCanvas.height = outputHeight;
+                const outputWidth = Math.round(frameRect.width);
+                const outputHeight = Math.round(frameRect.height);
+                outputCanvas.width = outputWidth;
+                outputCanvas.height = outputHeight;
 
-            // Рисуем вырезанную область
-            ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, outputWidth, outputHeight);
+                ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, outputWidth, outputHeight);
 
-            // Замена белого фона на прозрачный
-            const imageData = ctx.getImageData(0, 0, outputWidth, outputHeight);
-            const data = imageData.data;
-            const threshold = 220; // порог белого
+                // Замена белого фона на прозрачный
+                const imageData = ctx.getImageData(0, 0, outputWidth, outputHeight);
+                const data = imageData.data;
+                const threshold = 220;
 
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
-                if (r > threshold && g > threshold && b > threshold) {
-                    data[i + 3] = 0; // делаем прозрачным
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    if (r > threshold && g > threshold && b > threshold) {
+                        data[i + 3] = 0;
+                    }
                 }
-            }
-            ctx.putImageData(imageData, 0, 0);
+                ctx.putImageData(imageData, 0, 0);
 
-            // Конвертируем canvas в Blob (PNG)
-            const blob = await new Promise(resolve => {
-                outputCanvas.toBlob(resolve, 'image/png');
-            });
-
-            // ===== Загрузка в Supabase Storage (только если supabase доступен) =====
-            if (!supabase) {
-                setStatus('Ошибка: Supabase недоступен');
-                return;
-            }
-
-            const fileName = `fish_${Date.now()}.png`;
-            setStatus('Загрузка...');
-
-            const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('fish-images')
-                .upload(fileName, blob, {
-                    contentType: 'image/png',
-                    cacheControl: '3600',
-                    upsert: false
+                const blob = await new Promise(resolve => {
+                    outputCanvas.toBlob(resolve, 'image/png');
                 });
 
-            if (uploadError) {
-                console.error('Ошибка загрузки:', uploadError);
-                setStatus('Ошибка загрузки!');
-                return;
-            }
+                if (!supabase) {
+                    setStatus('Ошибка: Supabase недоступен');
+                    return;
+                }
 
-            // Получаем публичный URL
-            const { data: urlData } = supabase.storage
-                .from('fish-images')
-                .getPublicUrl(fileName);
-            const imageUrl = urlData.publicUrl;
+                const fileName = `fish_${Date.now()}.png`;
+                setStatus('Загрузка...');
 
-            // ===== Добавление записи в таблицу fishes =====
-            const { error: insertError } = await supabase
-                .from('fishes')
-                .insert([{ image_url: imageUrl }]);
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('fish-images')
+                    .upload(fileName, blob, {
+                        contentType: 'image/png',
+                        cacheControl: '3600',
+                        upsert: false
+                    });
 
-            if (insertError) {
-                console.error('Ошибка вставки:', insertError);
-                setStatus('Ошибка сохранения!');
-            } else {
-                setStatus('Рыбка отправлена в аквариум!');
+                if (uploadError) {
+                    console.error('Ошибка загрузки:', uploadError);
+                    setStatus('Ошибка загрузки: ' + uploadError.message);
+                    return;
+                }
+
+                const { data: urlData } = supabase.storage
+                    .from('fish-images')
+                    .getPublicUrl(fileName);
+                const imageUrl = urlData.publicUrl;
+
+                const { error: insertError } = await supabase
+                    .from('fishes')
+                    .insert([{ image_url: imageUrl }]);
+
+                if (insertError) {
+                    console.error('Ошибка вставки:', insertError);
+                    setStatus('Ошибка сохранения: ' + insertError.message);
+                } else {
+                    setStatus('Рыбка отправлена в аквариум!');
+                }
+            } catch (err) {
+                console.error('Ошибка при захвате:', err);
+                setStatus('Ошибка: ' + err.message);
             }
         });
     </script>
