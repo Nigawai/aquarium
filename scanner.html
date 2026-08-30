@@ -6,7 +6,12 @@
     <title>Сканер рисунков</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
             background: #222;
             display: flex;
@@ -16,6 +21,7 @@
             overflow: hidden;
             font-family: Arial, sans-serif;
         }
+
         #container {
             position: relative;
             width: 100vw;
@@ -23,12 +29,14 @@
             background: #000;
             overflow: hidden;
         }
+
         #video {
             width: 100%;
             height: 100%;
             object-fit: cover;
             display: block;
         }
+
         #frame {
             position: absolute;
             top: 50%;
@@ -41,6 +49,7 @@
             pointer-events: none;
             background: transparent;
         }
+
         .controls {
             position: absolute;
             bottom: 30px;
@@ -50,6 +59,7 @@
             gap: 20px;
             z-index: 10;
         }
+
         button {
             padding: 15px 30px;
             font-size: 18px;
@@ -61,10 +71,31 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.3);
             transition: background 0.2s;
         }
-        button:disabled { background: #999; cursor: not-allowed; }
-        button#captureBtn:not(:disabled) { background: #2196F3; }
-        #outputCanvas { display: none; }
-        #status { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); color: white; background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 20px; font-size: 14px; }
+
+            button:disabled {
+                background: #999;
+                cursor: not-allowed;
+            }
+
+            button#captureBtn:not(:disabled) {
+                background: #2196F3;
+            }
+
+        #outputCanvas {
+            display: none;
+        }
+
+        #status {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            background: rgba(0,0,0,0.6);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -81,11 +112,17 @@
 
     <script>
         // ===== НАСТРОЙКИ SUPABASE =====
-        const SUPABASE_URL = 'https://yhjhkyxnyvvqnqeitwbb.supabase.co';      // например 'https://xxxx.supabase.co'
-        const SUPABASE_ANON_KEY = 'sb_publishable_psu4aYJtkqdDHh545USR4g_ehhLnb1D';   // длинная строка
-
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const SUPABASE_URL = 'https://yhjhkyxnyvvqnqeitwbb.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_psu4aYJtkqdDHh545USR4g_ehhLnb1D';
         // ==============================
+
+        // Безопасное создание клиента Supabase (не блокирует работу, если библиотека не загрузилась)
+        let supabase = null;
+        if (typeof window.supabase !== 'undefined') {
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        } else {
+            console.warn('Supabase не загружен, загрузка изображений будет недоступна');
+        }
 
         const video = document.getElementById('video');
         const startBtn = document.getElementById('startBtn');
@@ -104,10 +141,8 @@
 
         startBtn.addEventListener('click', async () => {
             try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment' },
-                    audio: false
-                });
+                // Упрощённый запрос: просто включить камеру (без указания facingMode)
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 video.srcObject = stream;
                 captureBtn.disabled = false;
                 startBtn.disabled = true;
@@ -171,7 +206,12 @@
                 outputCanvas.toBlob(resolve, 'image/png');
             });
 
-            // ===== Загрузка в Supabase Storage =====
+            // ===== Загрузка в Supabase Storage (только если supabase доступен) =====
+            if (!supabase) {
+                setStatus('Ошибка: Supabase недоступен');
+                return;
+            }
+
             const fileName = `fish_${Date.now()}.png`;
             setStatus('Загрузка...');
 
